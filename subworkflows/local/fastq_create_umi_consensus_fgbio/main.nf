@@ -42,8 +42,10 @@ workflow FASTQ_CREATE_UMI_CONSENSUS_FGBIO {
 
     bams_to_merge = ALIGN_UMI.out.bam
     // id currently includes the lane, so swap to just id=sample and groupKey to avoid blocking
+    // also remove sample_lane_id (lane-specific) so all lanes share the same groupKey
         .map {meta, bam ->
-            tuple( groupKey(meta + [id:meta.sample], meta.num_lanes), bam)
+            def group_meta = meta.findAll { k, v -> k != 'sample_lane_id' } + [id:meta.sample]
+            tuple( groupKey(group_meta, meta.num_lanes), bam)
             }
         .groupTuple()
         // undo the groupKey, else the meta map is not a normal map.
