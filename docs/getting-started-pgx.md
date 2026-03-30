@@ -110,31 +110,21 @@ grep -v "^browser\|^track" /path/to/PGX.design.bed \
 
 For a live demonstration using the existing test sample (tr_106960, 4-lane FASTQs):
 
-> This caps per-process resource requests to fit your machine. Sarek's defaults are sized for HPC clusters (72 GB, 16 CPUs per process). Without this, Docker containers get killed by the OS.
+**Step 1 — Download the demo FASTQs**
 
-**Step 1 — Create the samplesheet**
-
-One row per FASTQ lane, saved to `tests/csv/3.0/my_sample.csv`:
-
-```csv
-patient,sex,status,sample,lane,fastq_1,fastq_2
-tr_106960,XX,0,LKG-240292_S1,L001,/path/to/L001_R1.fastq.gz,/path/to/L001_R2.fastq.gz
-tr_106960,XX,0,LKG-240292_S1,L002,/path/to/L002_R1.fastq.gz,/path/to/L002_R2.fastq.gz
-tr_106960,XX,0,LKG-240292_S1,L003,/path/to/L003_R1.fastq.gz,/path/to/L003_R2.fastq.gz
-tr_106960,XX,0,LKG-240292_S1,L004,/path/to/L004_R1.fastq.gz,/path/to/L004_R2.fastq.gz
+```bash
+cd ~/ktmp
+aws s3 cp --recursive s3://kailos-blue-seq-results-clia/2271/sr_2271_PartialComputes_Bcl2FastqDemux_Samples_1730378094_707048/Unaligned/P-3130-31/K260/ .
 ```
 
-- `patient` — case/patient ID
-- `sample` — sample ID, shared across all lanes (this is what gets merged)
-- `lane` — L001–L004
-- `status` — 0 = germline/normal
-
 **Step 2 — Run the pipeline**
+
+The samplesheet (`demo/samplesheet.csv`) and panel BED (`demo/PGX.5.7.1.targets.bed`) are already in the repo. From the repo root:
 
 ```bash
 nextflow run . -profile docker \
   -c conf/local.config \
-  --input tests/csv/3.0/my_sample.csv \
+  --input demo/samplesheet.csv \
   --aligner bwa-mem \
   --umi_read_structure '+T +T' \
   --umi_in_read_header \
@@ -147,15 +137,30 @@ nextflow run . -profile docker \
   --bwa /kdata/reference_genomes/hg19/hg19_samtools/ \
   --dbsnp /kdata/reference_genomes/hg19/dbsnp_132/dbsnp_132.hg19.vcf.gz \
   --known_indels /kdata/reference_genomes/hg19/hg19_mills/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz \
-  --intervals tests/csv/3.0/PGX.5.7.1.targets.bed \
-  --outdir results_my_sample
+  --intervals demo/PGX.5.7.1.targets.bed \
+  --outdir results_demo
 ```
 
 Completes in ~17 minutes. To replay instantly from cache (useful for demos):
 
 ```bash
-nextflow run . -profile docker -c conf/local.config \
-  ... (same args) ... \
+nextflow run . -profile docker \
+  -c conf/local.config \
+  --input demo/samplesheet.csv \
+  --aligner bwa-mem \
+  --umi_read_structure '+T +T' \
+  --umi_in_read_header \
+  --tools haplotypecaller \
+  --skip_tools haplotypecaller_filter \
+  --igenomes_ignore \
+  --fasta /kdata/reference_genomes/hg19/hg19_samtools/hg19.fa \
+  --fasta_fai /kdata/reference_genomes/hg19/hg19_samtools/hg19.fa.fai \
+  --dict /kdata/reference_genomes/hg19/hg19_samtools/hg19.dict \
+  --bwa /kdata/reference_genomes/hg19/hg19_samtools/ \
+  --dbsnp /kdata/reference_genomes/hg19/dbsnp_132/dbsnp_132.hg19.vcf.gz \
+  --known_indels /kdata/reference_genomes/hg19/hg19_mills/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz \
+  --intervals demo/PGX.5.7.1.targets.bed \
+  --outdir results_demo \
   -resume
 ```
 
@@ -163,9 +168,9 @@ nextflow run . -profile docker -c conf/local.config \
 
 ```bash
 ./scripts/compare_vcf.sh \
-  results_my_sample/variant_calling/haplotypecaller/LKG-240292_S1/LKG-240292_S1.haplotypecaller.vcf.gz \
+  results_demo/variant_calling/haplotypecaller/LKG-240292_S1/LKG-240292_S1.haplotypecaller.vcf.gz \
   /path/to/kailos_filtered.vcf.gz \
-  tests/csv/3.0/PGX.5.7.1.targets.bed
+  demo/PGX.5.7.1.targets.bed
 ```
 
 ## Reference Data
