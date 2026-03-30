@@ -93,18 +93,18 @@ Without this flag, sarek defaults to `genome = 'GATK.GRCh38'` which overrides `-
 
 ## Panel BED File
 
-The PGX panel intervals file is at `tests/csv/3.0/PGX.5.7.1.targets.bed` (134 amplicon regions, hg19 `chr`-prefixed coordinates, derived from `PGX.5.7.1.bed` FO entries).
+The PGX panel intervals file is at `demo/PGX.5.2.1.targets.bed` (1,241 SNP target loci, hg19 `chr`-prefixed coordinates, derived from the `PGX.5.2.1_genetic_test_targets.bed` design file on S3).
 
-To regenerate it from a new design BED:
+To regenerate it from the design BED:
 
 ```bash
-grep -v "^browser\|^track" /path/to/PGX.design.bed \
-  | awk '$4 ~ /-FO\./' \
+grep -v "^track\|^browser" /path/to/PGX.5.2.1_genetic_test_targets.bed \
   | cut -f1-3 \
   | sort -k1,1V -k2,2n \
-  | uniq \
-  > tests/csv/3.0/PGX.5.7.1.targets.bed
+  > demo/PGX.5.2.1.targets.bed
 ```
+
+> **Note:** PGX 5.2.1 is a SNP-loci panel (1-bp positions with rs IDs). There are no amplicon FO entries — all entries are already the target positions, so no `awk` filtering is needed.
 
 ## Demo Walkthrough
 
@@ -119,7 +119,7 @@ aws s3 cp --recursive s3://kailos-blue-seq-results-clia/2271/sr_2271_PartialComp
 
 **Step 2 — Run the pipeline**
 
-The samplesheet (`demo/samplesheet.csv`) and panel BED (`demo/PGX.5.7.1.targets.bed`) are already in the repo. From the repo root:
+The samplesheet (`demo/samplesheet.csv`) and panel BED (`demo/PGX.5.2.1.targets.bed`) are already in the repo. From the repo root (~/kailos-sarek):
 
 ```bash
 nextflow run . -profile docker \
@@ -137,7 +137,7 @@ nextflow run . -profile docker \
   --bwa /kdata/reference_genomes/hg19/hg19_samtools/ \
   --dbsnp /kdata/reference_genomes/hg19/dbsnp_132/dbsnp_132.hg19.vcf.gz \
   --known_indels /kdata/reference_genomes/hg19/hg19_mills/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz \
-  --intervals demo/PGX.5.7.1.targets.bed \
+  --intervals demo/PGX.5.2.1.targets.bed \
   --outdir results_demo
 ```
 
@@ -159,7 +159,7 @@ nextflow run . -profile docker \
   --bwa /kdata/reference_genomes/hg19/hg19_samtools/ \
   --dbsnp /kdata/reference_genomes/hg19/dbsnp_132/dbsnp_132.hg19.vcf.gz \
   --known_indels /kdata/reference_genomes/hg19/hg19_mills/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz \
-  --intervals demo/PGX.5.7.1.targets.bed \
+  --intervals demo/PGX.5.2.1.targets.bed \
   --outdir results_demo \
   -resume
 ```
@@ -183,7 +183,7 @@ nextflow run . -profile docker \
 | BWA v1 index | `/kdata/reference_genomes/hg19/hg19_samtools/` (`.amb`, `.ann`, `.bwt`, `.pac`, `.sa`) |
 | dbSNP 132 | `/kdata/reference_genomes/hg19/dbsnp_132/dbsnp_132.hg19.vcf.gz` |
 | Mills indels | `/kdata/reference_genomes/hg19/hg19_mills/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz` |
-| PGX panel BED | `tests/csv/3.0/PGX.5.7.1.targets.bed` |
+| PGX panel BED | `demo/PGX.5.2.1.targets.bed` |
 
 ## Custom Code Changes:
 
