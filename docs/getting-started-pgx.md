@@ -80,6 +80,30 @@ nextflow run . -profile docker \
 
 To run whole-genome (no panel restriction), replace `--intervals ...` with `--no_intervals`.
 
+### Run Command Parameter Reference
+
+| Parameter | What it does |
+|-----------|-------------|
+| `nextflow run .` | Run the pipeline from the current directory (uses `main.nf`) |
+| `-profile docker` | Use Docker containers for all processes (as opposed to Conda or Singularity) |
+| `-c conf/local.config` | Load the local resource limits config — caps CPUs/memory/time to fit your machine |
+| `-resume` | Resume from Nextflow's cache; skips any processes whose inputs haven't changed |
+| `--input` | Path to the samplesheet CSV listing patients, samples, lanes, and FASTQ paths |
+| `--aligner bwa-mem` | Use BWA v1 for alignment (not BWA-MEM2) — the hg19 v1 index already exists; MEM2 requires ~32 GB to build |
+| `--umi_read_structure '+T +T'` | Tells Fgbio the UMI is embedded in the read name (one UMI per read pair, template bases only — no fixed bases) |
+| `--umi_in_read_header` | UMIs are in the FASTQ read name field, not a separate read (R3) file |
+| `--tools haplotypecaller` | Run GATK HaplotypeCaller for germline variant calling |
+| `--skip_tools haplotypecaller_filter` | Skip the VQSR/hard-filter post-processing step — output raw HC calls for comparison |
+| `--igenomes_ignore` | Disable iGenomes defaults (which would override reference paths with GRCh38 S3 URLs and cause a contig mismatch against hg19) |
+| `--fasta` | Path to the hg19 reference genome FASTA |
+| `--fasta_fai` | Path to the FASTA index (`.fai`) — required by tools that do random access into the reference |
+| `--dict` | Path to the sequence dictionary (`.dict`) — required by GATK tools |
+| `--bwa` | Directory containing the BWA v1 index files (`.amb`, `.ann`, `.bwt`, `.pac`, `.sa`) |
+| `--dbsnp` | dbSNP VCF used by BQSR (Base Quality Score Recalibration) to identify known variant sites |
+| `--known_indels` | Mills & 1000G gold-standard indel VCF used by BQSR for known indel sites |
+| `--intervals` | BED file restricting variant calling to panel target regions — omit or use `--no_intervals` for WGS |
+| `--outdir` | Directory where all pipeline outputs are written |
+
 **Pipeline steps executed:**
 FASTQC → Fgbio FastqToBam → BAM2FASTQ → BWA-MEM (ALIGN_UMI, with `samtools fixmate`) → MERGE_CONSENSUS → GroupReadsByUmi → CallMolecularConsensusReads → FASTP → BWA-MEM (second alignment) → MarkDuplicates → BQSR → HaplotypeCaller → VCF QC → MultiQC
 
@@ -141,7 +165,7 @@ nextflow run . -profile docker \
   --outdir results_demo
 ```
 
-Completes in ~17 minutes. To replay instantly from cache (useful for demos):
+Completes in ~11 minutes. To replay instantly from cache (useful for demos):
 
 ```bash
 nextflow run . -profile docker \
@@ -166,12 +190,61 @@ nextflow run . -profile docker \
 
 **Step 3 — Compare against Kailos production VCF**
 
+Place the Kailos filtered VCF in `demo/` and compress/index it if needed:
+
+```bash
+bgzip demo/tr_106960.kailos_filtered.vcf
+bcftools index demo/tr_106960.kailos_filtered.vcf.gz
+```
+
+Then run the comparison restricted to the panel BED:
+
 ```bash
 ./scripts/compare_vcf.sh \
   results_demo/variant_calling/haplotypecaller/LKG-240292_S1/LKG-240292_S1.haplotypecaller.vcf.gz \
-  /path/to/kailos_filtered.vcf.gz \
-  demo/PGX.5.7.1.targets.bed
+  demo/tr_106960.kailos_filtered.vcf.gz \
+  demo/PGX.5.2.1.targets.bed
 ```
+
+## Apples-to-Apples Comparison (Starting from Scrubbed BAM)
+
+The full pipeline run above starts from FASTQs and includes UMI consensus and re-alignment, while the Kailos production pipeline applies a read-scrubbing step (KGtools) before variant calling. To isolate just the BQSR + HaplotypeCaller difference — removing the scrubbing variable — start sarek from the Kailos scrubbed BAM directly.
+
+**Step 1 — Create the BAM samplesheet**
+
+The samplesheet is already at `demo/samplesheet_scrubbed_bam.csv`. It points to `/ktmp/tr_106960.scrubbed.bam`.
+
+**Step 2 — Run from scrubbed BAM**
+
+```bash
+nextflow run . -profile docker \
+  -c conf/local.config \
+  --input demo/samplesheet_scrubbed_bam.csv \
+  --step prepare_recalibration \
+  --tools haplotypecaller \
+  --skip_tools haplotypecaller_filter \
+  --igenomes_ignore \
+  --fasta /kdata/reference_genomes/hg19/hg19_samtools/hg19.fa \
+  --fasta_fai /kdata/reference_genomes/hg19/hg19_samtools/hg19.fa.fai \
+  --dict /kdata/reference_genomes/hg19/hg19_samtools/hg19.dict \
+  --dbsnp /kdata/reference_genomes/hg19/dbsnp_132/dbsnp_132.hg19.vcf.gz \
+  --known_indels /kdata/reference_genomes/hg19/hg19_mills/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz \
+  --intervals demo/PGX.5.2.1.targets.bed \
+  --outdir results_scrubbed_bam
+```
+
+Note: `--aligner` and `--bwa` are not needed here since alignment is skipped. `--step prepare_recalibration` tells sarek to start from the BAM and run BQSR → HaplotypeCaller.
+
+**Step 3 — Compare**
+
+```bash
+./scripts/compare_vcf.sh \
+  results_scrubbed_bam/variant_calling/haplotypecaller/LKG-240292_S1/LKG-240292_S1.haplotypecaller.vcf.gz \
+  demo/tr_106960.kailos_filtered.vcf.gz \
+  demo/PGX.5.2.1.targets.bed
+```
+
+Any remaining discordance here is purely BQSR parameters or HaplotypeCaller settings — not alignment or scrubbing differences.
 
 ## Reference Data
 
@@ -204,18 +277,48 @@ Fixed a bug introduced in sarek PR #2124 (lane-variantcalling): the `sample_lane
 ### 4. `subworkflows/local/fastq_preprocess_gatk/main.nf`
 Fixed `FGBIO_COPYUMIFROMREADNAME` being called after UMI consensus re-alignment when `--umi_read_structure` is set. At that stage, FastqToBam has already extracted UMIs from read names into the `RX` tag, leaving no UMI sequence in the read name. Fixed by adding `&& !params.umi_read_structure` to the condition.
 
-## What Sarek Covers vs. the Full PGX Pipeline
+## Kailos Production Pipeline vs. Sarek — Side-by-Side
 
-| PGX Block | Sarek Coverage |
-|-----------|---------------|
-| 1. BCL Demux | Not supported — provide FASTQs |
-| 2. Trimming | fastp (replaces Trimmomatic) |
-| 3. Alignment (BWA) | Supported (`bwa-mem`) |
-| 4. Read Scrubbing (KGtools) | Not in sarek — custom module needed |
-| 5. UMI Consensus (Fgbio) | Supported |
-| 6. Variant Calling (GATK HC) | Supported |
-| 7. Pileup (samtools mpileup) | Not in this workflow — custom module needed |
-| 8–13. Genotyping, QC, Reports | Not in sarek — custom modules needed |
+| Step | Kailos Production | Sarek Run (results_demo) |
+|---|---|---|
+| BCL Demux | Internal demux tool | — (started from FASTQs) |
+| FASTQ QC | FastQC | FASTQC (x4 lanes) |
+| UMI Extraction | KGtools / read header parsing | Fgbio FASTQTOBAM (x4 lanes) |
+| Alignment (initial) | BWA-MEM | BWAMEM1_MEM (x4 lanes, via ALIGN_UMI) |
+| BAM → FASTQ conversion | — | BAM2FASTQ (x4 lanes) |
+| Lane Merge | samtools merge | MERGE_CONSENSUS |
+| UMI Grouping | KGtools | Fgbio GROUPREADSBYUMI |
+| UMI Consensus | KGtools | Fgbio CALLUMICONSENSUS |
+| Consensus BAM → FASTQ | — | CONVERT_FASTQ_UMI (collate + view + merge) |
+| Adapter Trimming | Trimmomatic | FASTP |
+| Re-alignment | BWA-MEM | BWAMEM1_MEM (x4 intervals) |
+| **Read Scrubbing** | **KGtools kailos-scrubber** | **— NOT RUN** |
+| Duplicate Marking | GATK MarkDuplicates | GATK4_MARKDUPLICATES |
+| Coverage QC (post-markdup) | — | MOSDEPTH + SAMTOOLS_STATS |
+| Base Quality Recalibration | GATK BQSR | GATK4_BASERECALIBRATOR → GATK4_APPLYBQSR |
+| Coverage QC (post-recal) | — | MOSDEPTH + SAMTOOLS_STATS |
+| Variant Calling | GATK HaplotypeCaller | GATK4_HAPLOTYPECALLER |
+| VCF QC | — | BCFTOOLS_STATS + VCFTOOLS |
+| Variant Filtering | Kailos custom filter | — NOT RUN |
+| Pileup / MQ0 BAM | samtools mpileup | — NOT RUN |
+| UMI Allele Stats | KGtools | — NOT RUN |
+| Genotyping / Clinical Reports | Internal tools | — NOT RUN |
+| QC Reporting | Internal reports | MULTIQC |
+
+## VCF Comparison Results (tr_106960 / LKG-240292_S1)
+
+| Comparison | Shared | Sarek-only | Kailos-only | Recall | Precision |
+|---|---|---|---|---|---|
+| FASTQ vs Kailos GATK raw | 29 | 0 | 25 | 53.7% | 100% |
+| FASTQ vs Kailos filtered | 29 | 0 | 25 | 53.7% | 100% |
+| Scrubbed BAM vs Kailos GATK raw | 54 | 1 | 0 | 100% | 98.2% |
+| Scrubbed BAM vs Kailos filtered | 54 | 1 | 0 | 100% | 98.2% |
+
+**Key findings:**
+- Starting from FASTQs, sarek calls no false positives (100% precision) but misses 25 variants (53.7% recall) — all in complex PGX genes (CYP2D6, CYP2C, DPYD, SLCO1B1)
+- Starting from the Kailos scrubbed BAM, sarek matches 100% of Kailos calls with only 1 extra call in CYP2D6
+- The 25 missed variants are entirely due to the missing scrubbing step, not the variant caller
+- GATK raw vs Kailos filtered makes no difference — the filtered variants all pass Kailos's own filter
 
 ## Troubleshooting
 
