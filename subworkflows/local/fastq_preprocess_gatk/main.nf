@@ -183,7 +183,9 @@ workflow FASTQ_PREPROCESS_GATK {
         aligned_bam = Channel.empty()
         aligned_bai = Channel.empty()
         // If UMIs started in read header or were put there by fastp, copy to RX tag
-        if (params.umi_in_read_header || params.umi_location) {
+        // Skip when umi_read_structure is set: FastqToBam already extracted UMIs from read names
+        // into the RX tag, so there is nothing left in the read name to copy at this stage
+        if ((params.umi_in_read_header || params.umi_location) && !params.umi_read_structure) {
             FGBIO_COPYUMIFROMREADNAME(FASTQ_ALIGN.out.bam.map{meta, bam -> [meta, bam, []]})
             aligned_bam = FGBIO_COPYUMIFROMREADNAME.out.bam
             aligned_bai = FGBIO_COPYUMIFROMREADNAME.out.bai

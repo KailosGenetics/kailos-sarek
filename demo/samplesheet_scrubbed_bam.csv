@@ -1,0 +1,2 @@
+patient,sex,status,sample,bam,bai
+tr_106960,XX,0,LKG-240292_S1,/ktmp/tr_106960.scrubbed.bam,/ktmp/tr_106960.scrubbed.bam.bai

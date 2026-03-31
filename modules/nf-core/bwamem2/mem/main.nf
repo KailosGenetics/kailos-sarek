@@ -27,6 +27,7 @@ process BWAMEM2_MEM {
     script:
     def args = task.ext.args ?: ''
     def args2 = task.ext.args2 ?: ''
+    def postprocess = task.ext.postprocess ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     def samtools_command = sort_bam ? 'sort' : 'view'
 
@@ -45,6 +46,7 @@ process BWAMEM2_MEM {
         -t $task.cpus \\
         \$INDEX \\
         $reads \\
+        ${postprocess} \\
         | samtools $samtools_command $args2 -@ $task.cpus ${reference} -o ${prefix}.${extension} -
 
     cat <<-END_VERSIONS > versions.yml
