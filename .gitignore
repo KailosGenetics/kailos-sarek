@@ -16,3 +16,5 @@ test.xml
 .vscode/mcp.json
 modules/nf-core/**/tests/
 subworkflows/nf-core/**/tests/
+
+.claude/
